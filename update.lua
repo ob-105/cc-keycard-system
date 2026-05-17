@@ -1,7 +1,7 @@
 local baseURL = "https://raw.githubusercontent.com/ob-105/cc-keycard-system/main/"
 
 if not http then
-    print("http disabled, skipping update")
+    print("http disabled, cannot update :(")
     return false
 end
 
@@ -24,13 +24,13 @@ end
 print("checking for updates...")
 local raw = fetch("manifest.json")
 if not raw then
-    print("cant reach github, skipping")
+    print("cant reach github :(")
     return false
 end
 
 local manifest = textutils.unserializeJSON(raw)
 if not manifest then
-    print("bad manifest")
+    print("bad manifest :(")
     return false
 end
 
@@ -56,7 +56,7 @@ for _, fname in ipairs(manifest.files) do
 end
 
 if #failed > 0 then
-    print("update incomplete, not saving version")
+    print("update failed :(")
     return false
 end
 

@@ -1,7 +1,7 @@
 local version = "1.0.0"
 if fs.exists("update.lua") then shell.run("update") end
 
-local rsSide = "right"
+local rsSide = "left"
 local openTime = 3
 
 local netID = "1"
