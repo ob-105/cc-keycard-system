@@ -1,270 +1,161 @@
--- ============================================================
---  VERIFICATION SERVER  (Computer 2)
---  Install on: Any computer with a Wireless Modem.
---  No redstone connections needed.
---
---  First run: you will be prompted for the Door Controller's
---  computer ID. Saved to "server.cfg".
---
---  ADMIN INTERFACE:
---    Press [A] at any time to open the admin menu where you
---    can add/remove approved and banned cards.
--- ============================================================
-
-local VERSION = "1.0.0"  -- managed by update.lua / manifest.json
-
--- ── Auto-update ───────────────────────────────────────────────
+local version = "1.0.0"
 if fs.exists("update.lua") then shell.run("update") end
 
--- ── Configuration ────────────────────────────────────────────
-local MODEM_SIDE        = "back"
-local VERIFY_PROTOCOL   = "keycard_verify"
-local RESPONSE_PROTOCOL = "keycard_response"
-local DOOR_PROTOCOL     = "keycard_door"
-local CONFIG_FILE       = "server.cfg"
-local LISTS_FILE        = "keycard_lists.cfg"
+rednet.open("back")
 
--- ── Modem setup ──────────────────────────────────────────────
-if not peripheral.isPresent(MODEM_SIDE) then
-    error("No peripheral found on '" .. MODEM_SIDE .. "'. Attach a Wireless Modem.", 0)
-end
-rednet.open(MODEM_SIDE)
-
--- ── Config (door controller ID) ──────────────────────────────
-local config = {}
-if fs.exists(CONFIG_FILE) then
-    local f = fs.open(CONFIG_FILE, "r")
-    config = textutils.unserialize(f.readAll()) or {}
+local cfg = {}
+if fs.exists("server.cfg") then
+    local f = fs.open("server.cfg", "r")
+    cfg = textutils.unserialize(f.readAll()) or {}
     f.close()
 end
 
-if not config.doorControllerID then
-    print("=== SERVER FIRST-RUN SETUP ===")
-    print("Enter the Door Controller's computer ID:")
-    config.doorControllerID = tonumber(read())
-    if not config.doorControllerID then error("Invalid door controller ID.", 0) end
-    local f = fs.open(CONFIG_FILE, "w")
-    f.write(textutils.serialize(config))
+if not cfg.doorID then
+    print("enter door controller id:")
+    cfg.doorID = tonumber(read())
+    local f = fs.open("server.cfg", "w")
+    f.write(textutils.serialize(cfg))
     f.close()
-    print("Saved.")
-    sleep(1)
 end
 
-local DOOR_CONTROLLER_ID = config.doorControllerID
-
--- ── Lists ────────────────────────────────────────────────────
---  approved : { { id=number, name=string }, ... }
---  banned   : { { id=number, name=string, reason=string }, ... }
-
-local lists = { approved = {}, banned = {} }
+local doorID = cfg.doorID
+local lists = {approved = {}, banned = {}}
 
 local function saveLists()
-    local f = fs.open(LISTS_FILE, "w")
+    local f = fs.open("keycard_lists.cfg", "w")
     f.write(textutils.serialize(lists))
     f.close()
 end
 
-local function loadLists()
-    if fs.exists(LISTS_FILE) then
-        local f = fs.open(LISTS_FILE, "r")
-        local data = textutils.unserialize(f.readAll())
-        f.close()
-        if type(data) == "table" then lists = data end
-    end
+if fs.exists("keycard_lists.cfg") then
+    local f = fs.open("keycard_lists.cfg", "r")
+    local d = textutils.unserialize(f.readAll())
+    f.close()
+    if type(d) == "table" then lists = d end
 end
 
-loadLists()
-
--- ── Helpers ──────────────────────────────────────────────────
-local function log(msg)
-    print("[" .. os.date("%H:%M:%S") .. "] " .. msg)
-end
-
--- Returns allowed (bool), reason (string)
-local function verify(cardID, cardName)
-    -- Banned check first — takes priority
-    for _, entry in ipairs(lists.banned) do
-        if entry.id == cardID or entry.name == cardName then
-            return false, "Banned: " .. (entry.reason or "no reason given")
+local function checkCard(cid, cname)
+    for _, e in ipairs(lists.banned) do
+        if e.id == cid or e.name == cname then
+            return false, "banned" .. (e.reason and (": " .. e.reason) or "")
         end
     end
-    -- Approved check
-    for _, entry in ipairs(lists.approved) do
-        if entry.id == cardID or entry.name == cardName then
-            return true, "Approved"
+    for _, e in ipairs(lists.approved) do
+        if e.id == cid or e.name == cname then
+            return true, "ok"
         end
     end
-    return false, "Not on approved list"
-end
-
--- ── Admin menu ───────────────────────────────────────────────
-local function promptID(prompt)
-    print(prompt .. " (leave blank to skip):")
-    local raw = read()
-    if raw == "" then return nil end
-    return tonumber(raw)
-end
-
-local function promptStr(prompt)
-    print(prompt .. " (leave blank to skip):")
-    local val = read()
-    if val == "" then return nil end
-    return val
+    return false, "not on list"
 end
 
 local function adminMenu()
     while true do
         term.clear()
-        term.setCursorPos(1, 1)
-        print("╔══════════════════════════╗")
-        print("║     ADMIN MENU           ║")
-        print("╠══════════════════════════╣")
-        print("║ 1. Approve a card        ║")
-        print("║ 2. Ban a card            ║")
-        print("║ 3. Remove from approved  ║")
-        print("║ 4. Remove from banned    ║")
-        print("║ 5. View lists            ║")
-        print("║ 6. Exit admin menu       ║")
-        print("╚══════════════════════════╝")
-        local choice = read()
+        term.setCursorPos(1,1)
+        print("--- admin ---")
+        print("1 approve card")
+        print("2 ban card")
+        print("3 remove approved")
+        print("4 remove banned")
+        print("5 view lists")
+        print("6 back")
+        local c = read()
 
-        if choice == "1" then
-            local id   = promptID("Card computer ID")
-            local name = promptStr("Card computer label/name")
-            if not id and not name then
-                print("At least one of ID or name required.")
-            else
-                table.insert(lists.approved, { id = id, name = name })
+        if c == "1" then
+            print("id (blank to skip):")
+            local id = tonumber(read())
+            print("name (blank to skip):")
+            local nm = read()
+            if nm == "" then nm = nil end
+            table.insert(lists.approved, {id=id, name=nm})
+            saveLists()
+            print("done")
+            sleep(1)
+
+        elseif c == "2" then
+            print("id (blank to skip):")
+            local id = tonumber(read())
+            print("name (blank to skip):")
+            local nm = read()
+            if nm == "" then nm = nil end
+            print("reason (optional):")
+            local reason = read()
+            if reason == "" then reason = nil end
+            table.insert(lists.banned, {id=id, name=nm, reason=reason})
+            saveLists()
+            print("banned")
+            sleep(1)
+
+        elseif c == "3" then
+            for i, e in ipairs(lists.approved) do
+                print(i .. ". " .. tostring(e.id) .. " / " .. tostring(e.name))
+            end
+            print("remove which? (blank cancel)")
+            local n = tonumber(read())
+            if n and lists.approved[n] then
+                table.remove(lists.approved, n)
                 saveLists()
-                print("Added to approved list.")
+                print("removed")
             end
-            sleep(1.5)
+            sleep(1)
 
-        elseif choice == "2" then
-            local id     = promptID("Card computer ID")
-            local name   = promptStr("Card computer label/name")
-            local reason = promptStr("Ban reason")
-            if not id and not name then
-                print("At least one of ID or name required.")
-            else
-                table.insert(lists.banned, { id = id, name = name, reason = reason })
+        elseif c == "4" then
+            for i, e in ipairs(lists.banned) do
+                print(i .. ". " .. tostring(e.id) .. " / " .. tostring(e.name))
+            end
+            print("remove which? (blank cancel)")
+            local n = tonumber(read())
+            if n and lists.banned[n] then
+                table.remove(lists.banned, n)
                 saveLists()
-                print("Added to banned list.")
+                print("removed")
             end
-            sleep(1.5)
+            sleep(1)
 
-        elseif choice == "3" then
-            if #lists.approved == 0 then
-                print("Approved list is empty.")
-                sleep(1.5)
-            else
-                print("=== APPROVED ===")
-                for i, e in ipairs(lists.approved) do
-                    print(i .. ". ID=" .. tostring(e.id) .. "  Name=" .. tostring(e.name))
-                end
-                print("Enter number to remove (blank to cancel):")
-                local n = tonumber(read())
-                if n and lists.approved[n] then
-                    table.remove(lists.approved, n)
-                    saveLists()
-                    print("Removed.")
-                end
-                sleep(1.5)
-            end
-
-        elseif choice == "4" then
-            if #lists.banned == 0 then
-                print("Banned list is empty.")
-                sleep(1.5)
-            else
-                print("=== BANNED ===")
-                for i, e in ipairs(lists.banned) do
-                    print(i .. ". ID=" .. tostring(e.id) ..
-                          "  Name=" .. tostring(e.name) ..
-                          "  Reason=" .. tostring(e.reason))
-                end
-                print("Enter number to remove (blank to cancel):")
-                local n = tonumber(read())
-                if n and lists.banned[n] then
-                    table.remove(lists.banned, n)
-                    saveLists()
-                    print("Removed.")
-                end
-                sleep(1.5)
-            end
-
-        elseif choice == "5" then
-            print("=== APPROVED (" .. #lists.approved .. ") ===")
+        elseif c == "5" then
+            print("approved:")
             for _, e in ipairs(lists.approved) do
-                print("  ID=" .. tostring(e.id) .. "  Name=" .. tostring(e.name))
+                print("  " .. tostring(e.id) .. " / " .. tostring(e.name))
             end
-            print("=== BANNED (" .. #lists.banned .. ") ===")
+            print("banned:")
             for _, e in ipairs(lists.banned) do
-                print("  ID=" .. tostring(e.id) ..
-                      "  Name=" .. tostring(e.name) ..
-                      "  Reason=" .. tostring(e.reason))
+                print("  " .. tostring(e.id) .. " / " .. tostring(e.name) .. " (" .. tostring(e.reason) .. ")")
             end
-            print("Press Enter to continue.")
             read()
 
-        elseif choice == "6" then
-            term.clear()
-            term.setCursorPos(1, 1)
-            log("Returned to server mode. Press [A] for admin.")
+        elseif c == "6" then
             break
         end
     end
 end
 
--- ── Main (parallel: network + admin key listener) ────────────
 term.clear()
-term.setCursorPos(1, 1)
-log("Verification Server active  (ID: " .. os.computerID() .. ")")
-log("Door Controller ID : " .. DOOR_CONTROLLER_ID)
-log("Approved entries   : " .. #lists.approved)
-log("Banned entries     : " .. #lists.banned)
-log("Press [A] to open admin menu.")
+term.setCursorPos(1,1)
+print("server running (id: " .. os.computerID() .. ")")
+print("door controller: " .. doorID)
+print("press A for admin")
 
--- Flag shared between the two parallel threads
 local inAdmin = false
 
 parallel.waitForAny(
-
-    -- Thread 1: handle incoming verification requests
     function()
         while true do
             if not inAdmin then
-                local senderID, message = rednet.receive(VERIFY_PROTOCOL, 1)
-
-                if senderID and type(message) == "table"
-                   and message.type == "verify"
-                   and type(message.cardID)   == "number"
-                   and type(message.cardName) == "string"
+                local sender, msg = rednet.receive("keycard_verify", 1)
+                if sender and type(msg) == "table" and msg.type == "verify"
+                    and type(msg.cardID) == "number" and type(msg.cardName) == "string"
                 then
-                    local cardID   = message.cardID
-                    local cardName = message.cardName
+                    local allowed, reason = checkCard(msg.cardID, msg.cardName)
+                    print((allowed and "granted" or "denied") .. ": " .. msg.cardName)
 
-                    log("Request from scanner " .. senderID ..
-                        " -> ID=" .. cardID .. "  Name=" .. cardName)
+                    rednet.send(sender, {allowed=allowed, reason=reason}, "keycard_response")
 
-                    local allowed, reason = verify(cardID, cardName)
-
-                    -- Reply to scanner
-                    rednet.send(senderID, {
-                        allowed = allowed,
-                        reason  = reason,
-                    }, RESPONSE_PROTOCOL)
-
-                    -- If allowed, also notify the door controller
                     if allowed then
-                        rednet.send(DOOR_CONTROLLER_ID, {
-                            type     = "open",
-                            cardID   = cardID,
-                            cardName = cardName,
-                        }, DOOR_PROTOCOL)
-                        log("GRANTED: " .. cardName .. " -> door controller notified.")
-                    else
-                        log("DENIED : " .. cardName .. " (" .. reason .. ")")
+                        rednet.send(doorID, {
+                            type="open",
+                            cardID=msg.cardID,
+                            cardName=msg.cardName
+                        }, "keycard_door")
                     end
                 end
             else
@@ -272,15 +163,15 @@ parallel.waitForAny(
             end
         end
     end,
-
-    -- Thread 2: watch for [A] keypress to enter admin mode
     function()
         while true do
             local _, key = os.pullEvent("key")
             if key == keys.a and not inAdmin then
                 inAdmin = true
-                sleep(0.1)   -- let network thread finish any in-flight receive
                 adminMenu()
+                term.clear()
+                term.setCursorPos(1,1)
+                print("server running, press A for admin")
                 inAdmin = false
             end
         end
