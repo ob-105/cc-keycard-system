@@ -12,13 +12,29 @@ if fs.exists("net.cfg") then
     if n.net and tostring(n.net) ~= "" then netID = tostring(n.net) end
 end
 
-local pingProto = "keycard_ping_" .. netID
 local verifyProto = "keycard_verify_" .. netID
 local responseProto = "keycard_response_" .. netID
-local discProto = "keycard_disc_" .. netID
+
+local function netNum(s)
+    local n = tonumber(s)
+    if n then return math.floor(math.abs(n)) end
+    local h = 0
+    for i = 1, #s do
+        h = (h * 31 + string.byte(s, i)) % 1000
+    end
+    return h
+end
+
+local pingChannel = 43000 + (netNum(netID) % 1000)
 
 rednet.open("back")
 rs.setAnalogOutput(rsSide, 15)
+
+local modem = peripheral.wrap("back")
+if not modem then
+    error("no modem on back", 0)
+end
+modem.open(pingChannel)
 
 local cfg = {}
 if fs.exists("scanner.cfg") then
@@ -58,40 +74,43 @@ term.clear()
 term.setCursorPos(1,1)
 print("scanner running, server: " .. srvID)
 print("network: " .. netID)
+print("chan: " .. pingChannel)
 
 while true do
-    local sender, msg, proto = rednet.receive(nil, 2)
+    local ev, side, ch, rch, msg, dist = os.pullEvent("modem_message")
 
-    if sender and proto == pingProto and type(msg) == "table" and type(msg.id) == "number" then
+    if ch == pingChannel and type(msg) == "table" and type(msg.id) == "number" then
         local cid = msg.id
-        local cname = msg.name
+        local cname = tostring(msg.name or ("card-" .. tostring(cid)))
 
-        local cd = cooldowns[cid]
-        if not cd or os.clock() >= cd then
-            print("card detected: " .. cname .. " (" .. cid .. ")")
+        if type(dist) == "number" and dist <= 3 then
+            local cd = cooldowns[cid]
+            if not cd or os.clock() >= cd then
+                print("card detected: " .. cname .. " (" .. cid .. ") d=" .. string.format("%.2f", dist))
 
-            rednet.send(srvID, {
-                type = "verify",
-                cardID = cid,
-                cardName = cname,
-                scannerID = os.computerID()
-            }, verifyProto)
+                rednet.send(srvID, {
+                    type = "verify",
+                    cardID = cid,
+                    cardName = cname,
+                    scannerID = os.computerID()
+                }, verifyProto)
 
-            local rs2, resp = rednet.receive(responseProto, 5)
+                local rs2, resp = rednet.receive(responseProto, 5)
 
-            if rs2 == srvID and type(resp) == "table" then
-                if resp.allowed then
-                    cooldowns[cid] = os.clock() + openTime + 1
-                    print("granted: " .. cname)
-                    rs.setAnalogOutput(rsSide, 0)
-                    sleep(openTime)
-                    rs.setAnalogOutput(rsSide, 15)
-                    print("door closed")
+                if rs2 == srvID and type(resp) == "table" then
+                    if resp.allowed then
+                        cooldowns[cid] = os.clock() + openTime + 1
+                        print("granted: " .. cname)
+                        rs.setAnalogOutput(rsSide, 0)
+                        sleep(openTime)
+                        rs.setAnalogOutput(rsSide, 15)
+                        print("door closed")
+                    else
+                        print("denied: " .. cname .. " - " .. tostring(resp.reason))
+                    end
                 else
-                    print("denied: " .. cname .. " - " .. tostring(resp.reason))
+                    print("no response from server")
                 end
-            else
-                print("no response from server")
             end
         end
     end

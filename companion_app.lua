@@ -9,13 +9,23 @@ if fs.exists("net.cfg") then
     if n.net and tostring(n.net) ~= "" then netID = tostring(n.net) end
 end
 
-local pingProto = "keycard_ping_" .. netID
+local function netNum(s)
+    local n = tonumber(s)
+    if n then return math.floor(math.abs(n)) end
+    local h = 0
+    for i = 1, #s do
+        h = (h * 31 + string.byte(s, i)) % 1000
+    end
+    return h
+end
+
+local pingChannel = 43000 + (netNum(netID) % 1000)
 
 local modem = peripheral.find("modem", function(_, m) return m.isWireless() end)
 if not modem then
     error("no wireless modem found", 0)
 end
-rednet.open(peripheral.getName(modem))
+modem.open(pingChannel)
 
 local myID = os.computerID()
 local myName = os.computerLabel()
@@ -29,9 +39,10 @@ print("keycard app running")
 print("id: " .. myID)
 print("name: " .. myName)
 print("network: " .. netID)
+print("chan: " .. pingChannel)
 print("broadcasting...")
 
 while true do
-    rednet.broadcast({id = myID, name = myName}, pingProto)
+    modem.transmit(pingChannel, pingChannel, {id = myID, name = myName})
     sleep(1)
 end
