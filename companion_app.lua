@@ -21,7 +21,32 @@ end
 
 local pingChannel = 43000 + (netNum(netID) % 1000)
 
-local modem = peripheral.find("modem", function(_, m) return m.isWireless() end)
+local function isWirelessModem(m)
+    if not m then return false end
+    local ok, wireless = pcall(function() return m.isWireless() end)
+    if ok then return wireless end
+    return true
+end
+
+local function getPocketModem()
+    local back = peripheral.wrap("back")
+    if back and peripheral.getType("back") == "modem" and isWirelessModem(back) then
+        return back
+    end
+
+    local found = peripheral.find("modem", function(_, m) return isWirelessModem(m) end)
+    if found then return found end
+
+    for _, side in ipairs(peripheral.getNames()) do
+        if peripheral.getType(side) == "modem" then
+            local m = peripheral.wrap(side)
+            if isWirelessModem(m) then return m end
+        end
+    end
+    return nil
+end
+
+local modem = getPocketModem()
 if not modem then
     error("no wireless modem found", 0)
 end
