@@ -1,0 +1,9 @@
+# Runtime config files (contain computer IDs, approved/banned lists)
+# These are generated on each in-game computer and must NOT be committed.
+*.cfg
+keycard_lists.cfg
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "files": [
+    "companion_app.lua",
+    "scanner.lua",
+    "server.lua",
+    "door_controller.lua",
+    "update.lua"
+  ]
+}
