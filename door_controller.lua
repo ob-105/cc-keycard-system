@@ -61,28 +61,38 @@ print("door controller running")
 print("server: " .. srvID)
 print("network: " .. netID)
 
-while true do
-    local sender, msg, proto = rednet.receive(nil)
+parallel.waitForAny(
+    function()
+        while true do
+            local sender, msg, proto = rednet.receive(nil)
 
-    if sender and proto == discProto and type(msg) == "table" then
-        if msg.type == "who_door" and msg.net == netID then
-            rednet.send(sender, {type = "iam", role = "door", net = netID}, discProto)
-        elseif msg.type == "who_server" and msg.net == netID then
-            rednet.send(sender, {type = "iam", role = "door", net = netID}, discProto)
+            if sender and proto == discProto and type(msg) == "table" then
+                if msg.type == "who_door" and msg.net == netID then
+                    rednet.send(sender, {type = "iam", role = "door", net = netID}, discProto)
+                elseif msg.type == "who_server" and msg.net == netID then
+                    rednet.send(sender, {type = "iam", role = "door", net = netID}, discProto)
+                end
+            end
+
+            if sender == srvID and proto == doorProto and type(msg) == "table" and msg.type == "open" then
+                if not busy then
+                    busy = true
+                    print("opening for " .. tostring(msg.cardName))
+                    rs.setAnalogOutput(rsSide, 0)
+                    sleep(openTime)
+                    rs.setAnalogOutput(rsSide, 15)
+                    print("closed")
+                    busy = false
+                end
+            else
+                print("ignored msg from " .. tostring(sender))
+            end
+        end
+    end,
+    function()
+        while true do
+            sleep(30)
+            if fs.exists("update.lua") then shell.run("update") end
         end
     end
-
-    if sender == srvID and proto == doorProto and type(msg) == "table" and msg.type == "open" then
-        if not busy then
-            busy = true
-            print("opening for " .. tostring(msg.cardName))
-            rs.setAnalogOutput(rsSide, 0)
-            sleep(openTime)
-            rs.setAnalogOutput(rsSide, 15)
-            print("closed")
-            busy = false
-        end
-    else
-        print("ignored msg from " .. tostring(sender))
-    end
-end
+)

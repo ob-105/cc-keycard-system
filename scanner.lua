@@ -14,6 +14,7 @@ end
 
 local verifyProto = "keycard_verify_" .. netID
 local responseProto = "keycard_response_" .. netID
+local discProto = "keycard_disc_" .. netID
 
 local function netNum(s)
     local n = tonumber(s)
@@ -76,42 +77,52 @@ print("scanner running, server: " .. srvID)
 print("network: " .. netID)
 print("chan: " .. pingChannel)
 
-while true do
-    local ev, side, ch, rch, msg, dist = os.pullEvent("modem_message")
+parallel.waitForAny(
+    function()
+        while true do
+            local ev, side, ch, rch, msg, dist = os.pullEvent("modem_message")
 
-    if ch == pingChannel and type(msg) == "table" and type(msg.id) == "number" then
-        local cid = msg.id
-        local cname = tostring(msg.name or ("card-" .. tostring(cid)))
+            if ch == pingChannel and type(msg) == "table" and type(msg.id) == "number" then
+                local cid = msg.id
+                local cname = tostring(msg.name or ("card-" .. tostring(cid)))
 
-        if type(dist) == "number" and dist <= 3 then
-            local cd = cooldowns[cid]
-            if not cd or os.clock() >= cd then
-                print("card detected: " .. cname .. " (" .. cid .. ") d=" .. string.format("%.2f", dist))
+                if type(dist) == "number" and dist <= 3 then
+                    local cd = cooldowns[cid]
+                    if not cd or os.clock() >= cd then
+                        print("card detected: " .. cname .. " (" .. cid .. ") d=" .. string.format("%.2f", dist))
 
-                rednet.send(srvID, {
-                    type = "verify",
-                    cardID = cid,
-                    cardName = cname,
-                    scannerID = os.computerID()
-                }, verifyProto)
+                        rednet.send(srvID, {
+                            type = "verify",
+                            cardID = cid,
+                            cardName = cname,
+                            scannerID = os.computerID()
+                        }, verifyProto)
 
-                local rs2, resp = rednet.receive(responseProto, 5)
+                        local rs2, resp = rednet.receive(responseProto, 5)
 
-                if rs2 == srvID and type(resp) == "table" then
-                    if resp.allowed then
-                        cooldowns[cid] = os.clock() + openTime + 1
-                        print("granted: " .. cname)
-                        rs.setAnalogOutput(rsSide, 0)
-                        sleep(openTime)
-                        rs.setAnalogOutput(rsSide, 15)
-                        print("door closed")
-                    else
-                        print("denied: " .. cname .. " - " .. tostring(resp.reason))
+                        if rs2 == srvID and type(resp) == "table" then
+                            if resp.allowed then
+                                cooldowns[cid] = os.clock() + openTime + 1
+                                print("granted: " .. cname)
+                                rs.setAnalogOutput(rsSide, 0)
+                                sleep(openTime)
+                                rs.setAnalogOutput(rsSide, 15)
+                                print("door closed")
+                            else
+                                print("denied: " .. cname .. " - " .. tostring(resp.reason))
+                            end
+                        else
+                            print("no response from server")
+                        end
                     end
-                else
-                    print("no response from server")
                 end
             end
         end
+    end,
+    function()
+        while true do
+            sleep(30)
+            if fs.exists("update.lua") then shell.run("update") end
+        end
     end
-end
+)

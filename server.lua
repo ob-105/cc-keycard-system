@@ -214,5 +214,11 @@ parallel.waitForAny(
                 inAdmin = false
             end
         end
+    end,
+    function()
+        while true do
+            sleep(30)
+            if fs.exists("update.lua") then shell.run("update") end
+        end
     end
 )

@@ -42,7 +42,17 @@ print("network: " .. netID)
 print("chan: " .. pingChannel)
 print("broadcasting...")
 
-while true do
-    modem.transmit(pingChannel, pingChannel, {id = myID, name = myName})
-    sleep(1)
-end
+parallel.waitForAny(
+    function()
+        while true do
+            modem.transmit(pingChannel, pingChannel, {id = myID, name = myName})
+            sleep(1)
+        end
+    end,
+    function()
+        while true do
+            sleep(30)
+            if fs.exists("update.lua") then shell.run("update") end
+        end
+    end
+)
