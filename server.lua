@@ -3,6 +3,19 @@ if fs.exists("update.lua") then shell.run("update") end
 
 rednet.open("back")
 
+local netID = "1"
+if fs.exists("net.cfg") then
+    local f = fs.open("net.cfg", "r")
+    local n = textutils.unserialize(f.readAll()) or {}
+    f.close()
+    if n.net and tostring(n.net) ~= "" then netID = tostring(n.net) end
+end
+
+local verifyProto = "keycard_verify_" .. netID
+local responseProto = "keycard_response_" .. netID
+local doorProto = "keycard_door_" .. netID
+local discProto = "keycard_disc_" .. netID
+
 local cfg = {}
 if fs.exists("server.cfg") then
     local f = fs.open("server.cfg", "r")
@@ -11,11 +24,27 @@ if fs.exists("server.cfg") then
 end
 
 if not cfg.doorID then
-    print("enter door controller id:")
-    cfg.doorID = tonumber(read())
+    print("finding door controller on network " .. netID .. "...")
+
+    local found = nil
+    local t = os.startTimer(0.1)
+    while not found do
+        local ev, a, b, c = os.pullEvent()
+        if ev == "timer" and a == t then
+            rednet.broadcast({type = "who_door", net = netID}, discProto)
+            t = os.startTimer(1.2)
+        elseif ev == "rednet_message" and c == discProto and type(b) == "table" then
+            if b.type == "iam" and b.role == "door" and b.net == netID then
+                found = a
+            end
+        end
+    end
+
+    cfg.doorID = found
     local f = fs.open("server.cfg", "w")
     f.write(textutils.serialize(cfg))
     f.close()
+    print("found door id: " .. tostring(cfg.doorID))
 end
 
 local doorID = cfg.doorID
@@ -133,6 +162,7 @@ term.clear()
 term.setCursorPos(1,1)
 print("server running (id: " .. os.computerID() .. ")")
 print("door controller: " .. doorID)
+print("network: " .. netID)
 print("press A for admin")
 
 local inAdmin = false
@@ -141,21 +171,30 @@ parallel.waitForAny(
     function()
         while true do
             if not inAdmin then
-                local sender, msg = rednet.receive("keycard_verify", 1)
-                if sender and type(msg) == "table" and msg.type == "verify"
+                local sender, msg, proto = rednet.receive(nil, 1)
+
+                if sender and proto == discProto and type(msg) == "table" then
+                    if msg.type == "who_server" and msg.net == netID then
+                        rednet.send(sender, {type = "iam", role = "server", net = netID}, discProto)
+                    elseif msg.type == "who_door" and msg.net == netID then
+                        rednet.send(sender, {type = "iam", role = "server", net = netID}, discProto)
+                    end
+                end
+
+                if sender and proto == verifyProto and type(msg) == "table" and msg.type == "verify"
                     and type(msg.cardID) == "number" and type(msg.cardName) == "string"
                 then
                     local allowed, reason = checkCard(msg.cardID, msg.cardName)
                     print((allowed and "granted" or "denied") .. ": " .. msg.cardName)
 
-                    rednet.send(sender, {allowed=allowed, reason=reason}, "keycard_response")
+                    rednet.send(sender, {allowed=allowed, reason=reason}, responseProto)
 
                     if allowed then
                         rednet.send(doorID, {
                             type="open",
                             cardID=msg.cardID,
                             cardName=msg.cardName
-                        }, "keycard_door")
+                        }, doorProto)
                     end
                 end
             else

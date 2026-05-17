@@ -38,6 +38,12 @@ if not choice or not scripts[choice] then
 end
 
 local target = scripts[choice]
+
+print("")
+io.write("network id (example 1): ")
+local netID = read()
+if not netID or netID == "" then netID = "1" end
+
 print("")
 print("downloading " .. target.file .. "...")
 
@@ -59,6 +65,11 @@ local f = fs.open("startup.lua", "w")
 f.write("shell.run(\"" .. target.file .. "\")\n")
 f.close()
 print("set startup to run " .. target.file)
+
+local nf = fs.open("net.cfg", "w")
+nf.write(textutils.serialize({net = tostring(netID)}))
+nf.close()
+print("saved network id: " .. tostring(netID))
 
 print("")
 print("done! reboot to start")
