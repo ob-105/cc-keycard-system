@@ -13,41 +13,7 @@ end
 
 local verifyProto = "keycard_verify_" .. netID
 local responseProto = "keycard_response_" .. netID
-local doorProto = "keycard_door_" .. netID
 local discProto = "keycard_disc_" .. netID
-
-local cfg = {}
-if fs.exists("server.cfg") then
-    local f = fs.open("server.cfg", "r")
-    cfg = textutils.unserialize(f.readAll()) or {}
-    f.close()
-end
-
-if not cfg.doorID then
-    print("finding door controller on network " .. netID .. "...")
-
-    local found = nil
-    local t = os.startTimer(0.1)
-    while not found do
-        local ev, a, b, c = os.pullEvent()
-        if ev == "timer" and a == t then
-            rednet.broadcast({type = "who_door", net = netID}, discProto)
-            t = os.startTimer(1.2)
-        elseif ev == "rednet_message" and c == discProto and type(b) == "table" then
-            if b.type == "iam" and b.role == "door" and b.net == netID then
-                found = a
-            end
-        end
-    end
-
-    cfg.doorID = found
-    local f = fs.open("server.cfg", "w")
-    f.write(textutils.serialize(cfg))
-    f.close()
-    print("found door id: " .. tostring(cfg.doorID))
-end
-
-local doorID = cfg.doorID
 local lists = {approved = {}, banned = {}}
 
 local function saveLists()
@@ -66,15 +32,15 @@ end
 local function checkCard(cid, cname)
     for _, e in ipairs(lists.banned) do
         if e.id == cid or e.name == cname then
-            return false, "banned" .. (e.reason and (": " .. e.reason) or "")
+            return false, "banned" .. (e.reason and (": " .. e.reason) or ""), 0
         end
     end
     for _, e in ipairs(lists.approved) do
         if e.id == cid or e.name == cname then
-            return true, "ok"
+            return true, "ok", tonumber(e.clearance) or 1
         end
     end
-    return false, "not on list"
+    return false, "not on list", 0
 end
 
 local function adminMenu()
@@ -96,7 +62,9 @@ local function adminMenu()
             print("name (blank to skip):")
             local nm = read()
             if nm == "" then nm = nil end
-            table.insert(lists.approved, {id=id, name=nm})
+            print("clearance level (default 1):")
+            local cl = tonumber(read()) or 1
+            table.insert(lists.approved, {id=id, name=nm, clearance=cl})
             saveLists()
             print("done")
             sleep(1)
@@ -144,7 +112,7 @@ local function adminMenu()
         elseif c == "5" then
             print("approved:")
             for _, e in ipairs(lists.approved) do
-                print("  " .. tostring(e.id) .. " / " .. tostring(e.name))
+                print("  " .. tostring(e.id) .. " / " .. tostring(e.name) .. " (clr " .. tostring(e.clearance or 1) .. ")")
             end
             print("banned:")
             for _, e in ipairs(lists.banned) do
@@ -161,7 +129,6 @@ end
 term.clear()
 term.setCursorPos(1,1)
 print("server running (id: " .. os.computerID() .. ")")
-print("door controller: " .. doorID)
 print("network: " .. netID)
 print("press A for admin")
 
@@ -176,26 +143,27 @@ parallel.waitForAny(
                 if sender and proto == discProto and type(msg) == "table" then
                     if msg.type == "who_server" and msg.net == netID then
                         rednet.send(sender, {type = "iam", role = "server", net = netID}, discProto)
-                    elseif msg.type == "who_door" and msg.net == netID then
-                        rednet.send(sender, {type = "iam", role = "server", net = netID}, discProto)
                     end
                 end
 
                 if sender and proto == verifyProto and type(msg) == "table" and msg.type == "verify"
                     and type(msg.cardID) == "number" and type(msg.cardName) == "string"
                 then
-                    local allowed, reason = checkCard(msg.cardID, msg.cardName)
-                    print((allowed and "granted" or "denied") .. ": " .. msg.cardName)
-
-                    rednet.send(sender, {allowed=allowed, reason=reason}, responseProto)
-
-                    if allowed then
-                        rednet.send(doorID, {
-                            type="open",
-                            cardID=msg.cardID,
-                            cardName=msg.cardName
-                        }, doorProto)
+                    local minCl = tonumber(msg.minClearance) or 1
+                    local allowed, reason, cardCl = checkCard(msg.cardID, msg.cardName)
+                    local finalAllowed = allowed and (cardCl >= minCl)
+                    if allowed and cardCl < minCl then
+                        reason = "clearance too low (have " .. tostring(cardCl) .. ", need " .. tostring(minCl) .. ")"
                     end
+
+                    print((finalAllowed and "granted" or "denied") .. ": " .. msg.cardName .. " scanner=" .. tostring(sender))
+
+                    rednet.send(sender, {
+                        allowed = finalAllowed,
+                        reason = reason,
+                        clearance = cardCl,
+                        required = minCl
+                    }, responseProto)
                 end
             else
                 sleep(0.1)

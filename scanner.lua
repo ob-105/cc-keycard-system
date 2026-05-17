@@ -62,13 +62,24 @@ if not cfg.serverID then
     end
 
     cfg.serverID = found
+    if not cfg.minClearance then cfg.minClearance = 1 end
     local f = fs.open("scanner.cfg", "w")
     f.write(textutils.serialize(cfg))
     f.close()
     print("found server id: " .. tostring(cfg.serverID))
 end
 
+if not cfg.minClearance then
+    print("minimum clearance for this scanner? (default 1)")
+    local n = tonumber(read())
+    cfg.minClearance = n or 1
+    local f = fs.open("scanner.cfg", "w")
+    f.write(textutils.serialize(cfg))
+    f.close()
+end
+
 local srvID = cfg.serverID
+local minClearance = tonumber(cfg.minClearance) or 1
 local cooldowns = {}
 
 term.clear()
@@ -76,6 +87,7 @@ term.setCursorPos(1,1)
 print("scanner running, server: " .. srvID)
 print("network: " .. netID)
 print("chan: " .. pingChannel)
+print("min clearance: " .. tostring(minClearance))
 
 parallel.waitForAny(
     function()
@@ -95,7 +107,8 @@ parallel.waitForAny(
                             type = "verify",
                             cardID = cid,
                             cardName = cname,
-                            scannerID = os.computerID()
+                            scannerID = os.computerID(),
+                            minClearance = minClearance
                         }, verifyProto)
 
                         local rs2, resp = rednet.receive(responseProto, 5)
